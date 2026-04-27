@@ -194,6 +194,7 @@ const spiflash_config_t my_spiflash_config = {
   .addr_endian = SPIFLASH_ENDIANNESS_BIG, // normally big endianess on addressing
   .sr_write_ms = 10,
   .page_program_ms = 2,
+  .page_erase_ms = 0, // not supported
   .block_erase_4_ms = 100,
   .block_erase_8_ms = 0, // not supported
   .block_erase_16_ms = 0, // not supported
