@@ -323,6 +323,35 @@ in-memory layout of the buffers differs:
 * in one-per-word mode the HAL accesses octets via `tx_data[i]` (low 8 bits);
 * in packed mode the HAL accesses octets via `__byte((int *)tx_data, i)`.
 
+# On-target self-test programs
+
+The [`examples/`](examples/) folder contains ready-to-flash applications that
+exercise the driver against a real SPI NOR chip on each architecture:
+
+- [`examples/c2000/`](examples/c2000/) - F28379D / F28004x / F28003x with
+  C2000Ware driverlib (SPIA + SCIA logger).
+- [`examples/cortex_m4/`](examples/cortex_m4/) - STM32F4 with CubeMX-generated
+  HAL (SPI1 + USART2 logger).
+
+Both share [`examples/common/spiflash_self_test.c`](examples/common/spiflash_self_test.c),
+which runs JEDEC, status register, sector-erase + verify-`0xFF`, write+read
+roundtrip, page-boundary write+read, and an optional chip-erase sequence; it
+prints a Unity-style report over the platform's UART.
+
+A passing report on C2000 is the strongest evidence that the C2000 port is
+correct on real hardware - it exercises the JEDEC reassembly, address
+composition, and `wr_buf` advance code paths that this fork rewrote.
+
+The self-test compiles cleanly under both `cl2000` byte modes and is verified
+on the host via the `test_self_test_host` CTest job.
+
+```cmd
+:: cl2000 compile-only check for the on-target test runner
+set CL2000=C:\ti\ccs1240\ccs\tools\compiler\ti-cgt-c2000_22.6.0.LTS\bin\cl2000.exe
+scripts\build_c2000_selftest.bat
+scripts\build_c2000_selftest.bat packed
+```
+
 # Host unit tests
 
 The repository ships a Unity-based host test suite that exercises:
@@ -333,7 +362,8 @@ The repository ships a Unity-based host test suite that exercises:
 * multi-page writes with address sequencing;
 * `BCW_*` busy-check-wait state machine;
 * asynchronous flow driven by `SPIFLASH_async_trigger`;
-* a packed-byte mode build against a host-side `__byte()` stub.
+* a packed-byte mode build against a host-side `__byte()` stub;
+* the on-target self-test runner running against the fake-flash mock.
 
 ## Running the host tests
 

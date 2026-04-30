@@ -75,6 +75,26 @@ if(SPIFLASH_BUILD_TESTS)
     spiflash_add_test(test_busy_poll            test/test_busy_poll.c)
     spiflash_add_test(test_async                test/test_async.c)
 
+    # Verify the on-target self-test runner compiles + completes against the
+    # mock fake-flash. Same code that ships into the C2000 / Cortex-M4
+    # examples; this proves the test logic is correct independently of any
+    # board.
+    add_executable(test_self_test_host
+        test/test_self_test_host.c
+        examples/common/spiflash_self_test.c
+    )
+    target_include_directories(test_self_test_host PRIVATE
+        src test examples/common
+    )
+    target_link_libraries(test_self_test_host PRIVATE
+        spiflash spiflash_mock_hal unity
+    )
+    if(SPIFLASH_TEST_SANITIZER_FLAGS)
+        target_compile_options(test_self_test_host PRIVATE ${SPIFLASH_TEST_SANITIZER_FLAGS})
+        target_link_options(test_self_test_host PRIVATE ${SPIFLASH_TEST_SANITIZER_FLAGS})
+    endif()
+    add_test(NAME test_self_test_host COMMAND test_self_test_host)
+
     # Host-side packed-byte simulation: build a separate spiflash object with
     # SPIFLASH_BYTES_PACKED defined, against a stubbed __byte() intrinsic.
     add_library(spiflash_packed STATIC src/spiflash.c)
