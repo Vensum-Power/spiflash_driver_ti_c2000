@@ -129,15 +129,15 @@ static uint32_t _spiflash_get_largest_erase_area(spiflash_t *spi, uint32_t addr,
 static uint8_t _spiflash_get_erase_cmd(spiflash_t *spi, uint32_t len) {
   if(len == spi->cfg->page_sz && spi->cmd_tbl->page_erase)
     return spi->cmd_tbl->page_erase;
-  else if (len == 4*1024 && spi->cmd_tbl->block_erase_4)
+  else if (len == 4*(uint32_t)1024 && spi->cmd_tbl->block_erase_4)
     return spi->cmd_tbl->block_erase_4;
-  else if (len == 8*1024 && spi->cmd_tbl->block_erase_8)
+  else if (len == 8*(uint32_t)1024 && spi->cmd_tbl->block_erase_8)
     return spi->cmd_tbl->block_erase_8;
-  else if (len == 16*1024 && spi->cmd_tbl->block_erase_16)
+  else if (len == 16*(uint32_t)1024 && spi->cmd_tbl->block_erase_16)
     return spi->cmd_tbl->block_erase_16;
-  else if (len == 32*1024 && spi->cmd_tbl->block_erase_32)
+  else if (len == 32*(uint32_t)1024 && spi->cmd_tbl->block_erase_32)
     return spi->cmd_tbl->block_erase_32;
-  else if (len == 64*1024 && spi->cmd_tbl->block_erase_64)
+  else if (len == 64*(uint32_t)1024 && spi->cmd_tbl->block_erase_64)
     return spi->cmd_tbl->block_erase_64;
   else
     return 0;
@@ -146,15 +146,15 @@ static uint8_t _spiflash_get_erase_cmd(spiflash_t *spi, uint32_t len) {
 static uint32_t _spiflash_get_erase_time(spiflash_t *spi, uint32_t len) {
   if(len == spi->cfg->page_sz)
     return spi->cfg->page_erase_ms;
-  else if (len == 4*1024)
+  else if (len == 4*(uint32_t)1024)
     return spi->cfg->block_erase_4_ms;
-  else if (len == 8*1024)
+  else if (len == 8*(uint32_t)1024)
     return spi->cfg->block_erase_8_ms;
-  else if (len == 16*1024)
+  else if (len == 16*(uint32_t)1024)
     return spi->cfg->block_erase_16_ms;
-  else if (len == 32*1024)
+  else if (len == 32*(uint32_t)1024)
     return spi->cfg->block_erase_32_ms;
-  else if (len == 64*1024)
+  else if (len == 64*(uint32_t)1024)
     return spi->cfg->block_erase_64_ms;
   else
     return 0;
