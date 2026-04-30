@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  host-tests:
+    name: Host unit tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DSPIFLASH_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build --config Debug
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure --build-config Debug
+
+  c2000-compile-only:
+    name: TI C2000 compile-only check
+    runs-on: ubuntu-latest
+    # The TI cl2000 compiler is not redistributable on free CI. This job is
+    # documented as a manual / self-hosted-runner step. It is intentionally
+    # not enabled by default so PRs from contributors without the toolchain
+    # don't fail. To enable on a self-hosted runner with cl2000 installed,
+    # set runs-on: [self-hosted, ti-c2000] and remove the if: false guard.
+    if: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: cl2000 compile (one-per-word)
+        run: ./scripts/build_c2000.sh
+      - name: cl2000 compile (packed bytes)
+        run: ./scripts/build_c2000.sh packed

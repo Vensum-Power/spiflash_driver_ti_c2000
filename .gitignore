@@ -1,7 +1,11 @@
 build/
+build-*/
 makefile
-test/
 .cproject
 .project
 .settings
 
+# Generated test artifacts
+*.obj
+*.lst
+*.map

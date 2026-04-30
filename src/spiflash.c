@@ -49,13 +49,21 @@ static int _spiflash_is_hwbusy(spiflash_t *spi, uint8_t sr) {
   return (sr & spi->cmd_tbl->sr_busy_bit);
 }
 
-static void _spiflash_compose_address(spiflash_t *spi, uint32_t addr, uint8_t *buf) {
+/* Writes spi->cfg->addr_sz octets describing addr into buf starting at the
+ * given logical octet offset. Honors spi->cfg->addr_endian.
+ *
+ * Routed through SPIF_BYTE_SET so the same source works on classical 8-bit-byte
+ * targets (one cell per octet) and on TI C2000 in packed-byte mode.
+ */
+static void _spiflash_compose_address(spiflash_t *spi, uint32_t addr,
+    spif_byte_t *buf, uint32_t octet_off) {
   uint8_t i;
   for (i = 0; i < spi->cfg->addr_sz; i++) {
-    buf[i] = (spi->cfg->addr_endian ?
+    uint8_t b = (uint8_t)((spi->cfg->addr_endian ?
         ( addr >> (8*((spi->cfg->addr_sz - 1) - i)) ) :
         ( addr >> (8*i) )
-        ) & 0xff;
+        ) & 0xff);
+    SPIF_BYTE_SET(buf, octet_off + i, b);
   }
 }
 
@@ -187,10 +195,10 @@ static int _spiflash_begin_async(spiflash_t *spi) {
     // write: issue write address
     SPIF_DBG("write - address...\n");
     spi->hal->_spiflash_spi_cs(spi, 1);
-    spi->tx_internal_buf[0] = spi->cmd_tbl->page_program;
-    _spiflash_compose_address(spi, spi->addr, &spi->tx_internal_buf[1]);
+    SPIF_BYTE_SET(spi->tx_internal_buf, 0, spi->cmd_tbl->page_program);
+    _spiflash_compose_address(spi, spi->addr, spi->tx_internal_buf, 1);
     res = spi->hal->_spiflash_spi_txrx(spi,
-        &spi->tx_internal_buf[0],
+        spi->tx_internal_buf,
         1 + spi->cfg->addr_sz + spi->cfg->addr_dummy_sz,
         0, 0);
     return res;
@@ -201,7 +209,7 @@ static int _spiflash_begin_async(spiflash_t *spi) {
     uint32_t wr_sz = spi->wr_len < rem_pg_sz ? spi->wr_len : rem_pg_sz;
     SPIF_DBG("write - data %i of %i wait...\n", wr_sz, spi->wr_len);
     const uint8_t *wr_buf = spi->wr_buf;
-    spi->wr_buf += wr_sz;
+    SPIF_BUF_ADVANCE(spi->wr_buf, wr_sz);
     spi->wr_len -= wr_sz;
     spi->addr += wr_sz;
     spi->wait_period_ms = spi->cfg->page_program_ms;
@@ -225,14 +233,14 @@ static int _spiflash_begin_async(spiflash_t *spi) {
     uint8_t cmd = _spiflash_get_erase_cmd(spi, era_sz);
     uint32_t era_time =_spiflash_get_erase_time(spi, era_sz);
     if (cmd == 0x00) return SPIFLASH_ERR_BAD_CONFIG;
-    spi->tx_internal_buf[0] = cmd;
-    _spiflash_compose_address(spi, spi->addr, &spi->tx_internal_buf[1]);
+    SPIF_BYTE_SET(spi->tx_internal_buf, 0, cmd);
+    _spiflash_compose_address(spi, spi->addr, spi->tx_internal_buf, 1);
     spi->addr += era_sz;
     spi->erase_len -= era_sz;
     spi->wait_period_ms = era_time;
     spi->busy_check_wait = BCW_WAIT;
     res = spi->hal->_spiflash_spi_txrx(spi,
-        &spi->tx_internal_buf[0],
+        spi->tx_internal_buf,
         1 + spi->cfg->addr_sz + spi->cfg->addr_dummy_sz,
         0, 0);
     return res;
@@ -248,12 +256,12 @@ static int _spiflash_begin_async(spiflash_t *spi) {
   case SPIFLASH_OP_WRITE_SR_sDATA: {
     // write_sr: data
     SPIF_DBG("write_sr - data wait...\n");
-    spi->tx_internal_buf[1] = spi->sr_data;
-    spi->tx_internal_buf[0] = spi->cmd_tbl->write_sr;
+    SPIF_BYTE_SET(spi->tx_internal_buf, 1, spi->sr_data);
+    SPIF_BYTE_SET(spi->tx_internal_buf, 0, spi->cmd_tbl->write_sr);
     spi->hal->_spiflash_spi_cs(spi, 1);
     spi->wait_period_ms = spi->cfg->sr_write_ms;
     spi->busy_check_wait = BCW_WAIT;
-    res = spi->hal->_spiflash_spi_txrx(spi, &spi->tx_internal_buf[0], 2, 0, 0);
+    res = spi->hal->_spiflash_spi_txrx(spi, spi->tx_internal_buf, 2, 0, 0);
     return res;
   }
 
@@ -268,10 +276,10 @@ static int _spiflash_begin_async(spiflash_t *spi) {
     // erase chip: cmd
     SPIF_DBG("erase chip - command wait...\n");
     spi->hal->_spiflash_spi_cs(spi, 1);
-    spi->tx_internal_buf[0] = spi->cmd_tbl->chip_erase;
+    SPIF_BYTE_SET(spi->tx_internal_buf, 0, spi->cmd_tbl->chip_erase);
     spi->wait_period_ms = spi->cfg->chip_erase_ms;
     spi->busy_check_wait = BCW_WAIT;
-    res = spi->hal->_spiflash_spi_txrx(spi, &spi->tx_internal_buf[0], 1, 0, 0);
+    res = spi->hal->_spiflash_spi_txrx(spi, spi->tx_internal_buf, 1, 0, 0);
     return res;
   }
 
@@ -279,11 +287,11 @@ static int _spiflash_begin_async(spiflash_t *spi) {
     // read: issue address and read
     SPIF_DBG("read - address and data...\n");
     spi->hal->_spiflash_spi_cs(spi, 1);
-    spi->tx_internal_buf[0] = spi->cmd_tbl->read_data;
-    _spiflash_compose_address(spi, spi->addr, &spi->tx_internal_buf[1]);
+    SPIF_BYTE_SET(spi->tx_internal_buf, 0, spi->cmd_tbl->read_data);
+    _spiflash_compose_address(spi, spi->addr, spi->tx_internal_buf, 1);
 
     res = spi->hal->_spiflash_spi_txrx(spi,
-        &spi->tx_internal_buf[0],
+        spi->tx_internal_buf,
         1 + spi->cfg->addr_sz + spi->cfg->addr_dummy_sz,
         spi->rd_buf, spi->rd_len);
     return res;
@@ -293,29 +301,34 @@ static int _spiflash_begin_async(spiflash_t *spi) {
     // fast read: issue address and read
     SPIF_DBG("read fast - address and data...\n");
     spi->hal->_spiflash_spi_cs(spi, 1);
-    spi->tx_internal_buf[0] = spi->cmd_tbl->read_data_fast;
-    _spiflash_compose_address(spi, spi->addr, &spi->tx_internal_buf[1]);
-    spi->tx_internal_buf[1 + spi->cfg->addr_sz + 1] = 0; // dummy for fast read
+    SPIF_BYTE_SET(spi->tx_internal_buf, 0, spi->cmd_tbl->read_data_fast);
+    _spiflash_compose_address(spi, spi->addr, spi->tx_internal_buf, 1);
+    SPIF_BYTE_SET(spi->tx_internal_buf, 1 + spi->cfg->addr_sz + 1, 0); // dummy for fast read
     res = spi->hal->_spiflash_spi_txrx(spi,
-        &spi->tx_internal_buf[0],
+        spi->tx_internal_buf,
         1 + spi->cfg->addr_sz + 1 + spi->cfg->addr_dummy_sz,
         spi->rd_buf, spi->rd_len);
     return res;
   }
 
   case SPIFLASH_OP_READ_JEDEC: {
-    // read_jedec
+    // read_jedec - receive 3 octets into tx_internal_buf scratch; reassemble
+    // into *id_dst in the completion handler. Reading directly through
+    // (uint8_t *)id_dst would alias a uint32_t storage as a packed-byte stream
+    // which is not valid on TI C2000 (CHAR_BIT == 16).
     SPIF_DBG("read_jedec...\n");
     spi->hal->_spiflash_spi_cs(spi, 1);
-    res = spi->hal->_spiflash_spi_txrx(spi, &spi->cmd_tbl->jedec_id, 1, (uint8_t *)spi->id_dst, 3);
+    res = spi->hal->_spiflash_spi_txrx(spi, &spi->cmd_tbl->jedec_id, 1,
+        spi->tx_internal_buf, 3);
     return res;
   }
 
   case SPIFLASH_OP_READ_PRODUCT: {
-    // read_jedec
+    // read_product - same scratch buffer trick as READ_JEDEC.
     SPIF_DBG("read_prod...\n");
     spi->hal->_spiflash_spi_cs(spi, 1);
-    res = spi->hal->_spiflash_spi_txrx(spi, &spi->cmd_tbl->device_id, 1, (uint8_t *)spi->id_dst, 3);
+    res = spi->hal->_spiflash_spi_txrx(spi, &spi->cmd_tbl->device_id, 1,
+        spi->tx_internal_buf, 3);
     return res;
   }
 
@@ -324,7 +337,8 @@ static int _spiflash_begin_async(spiflash_t *spi) {
     // read_sr
     SPIF_DBG("read_sr...\n");
     spi->hal->_spiflash_spi_cs(spi, 1);
-    res = spi->hal->_spiflash_spi_txrx(spi, &spi->cmd_tbl->read_sr, 1, (uint8_t *)spi->sr_dst, 1);
+    res = spi->hal->_spiflash_spi_txrx(spi, &spi->cmd_tbl->read_sr, 1,
+        spi->sr_dst, 1);
     return res;
   }
 
@@ -332,7 +346,8 @@ static int _spiflash_begin_async(spiflash_t *spi) {
     // read_reg
     SPIF_DBG("read_reg...\n");
     spi->hal->_spiflash_spi_cs(spi, 1);
-    res = spi->hal->_spiflash_spi_txrx(spi, &spi->reg_nbr, 1, (uint8_t *)spi->reg_dst, 1);
+    res = spi->hal->_spiflash_spi_txrx(spi, &spi->reg_nbr, 1,
+        spi->reg_dst, 1);
     return res;
   }
 
@@ -349,7 +364,7 @@ static int _spiflash_begin_async(spiflash_t *spi) {
     SPIF_DBG("write_reg - data%s...\n", spi->op == SPIFLASH_OP_WRITE_REG_DATA ? "" : " wait");
     spi->hal->_spiflash_spi_cs(spi, 1);
     spi->busy_check_wait = spi->op == SPIFLASH_OP_WRITE_REG_DATA ? BCW_IDLE : BCW_WAIT;
-    res = spi->hal->_spiflash_spi_txrx(spi, &spi->tx_internal_buf[0], 2, 0, 0);
+    res = spi->hal->_spiflash_spi_txrx(spi, spi->tx_internal_buf, 2, 0, 0);
     return res;
   }
 
@@ -485,12 +500,19 @@ static int _spiflash_end_async(spiflash_t *spi, int res) {
     break;
 
   case SPIFLASH_OP_READ_JEDEC:
-    SPIF_DBG("read jedec ok\n");
-    spi->op = SPIFLASH_OP_IDLE;
-    break;
-
   case SPIFLASH_OP_READ_PRODUCT:
-    SPIF_DBG("read prod ok\n");
+    SPIF_DBG("read jedec/prod ok\n");
+    // Reassemble the 3 received octets into *id_dst preserving the original
+    // little-endian byte ordering (octet 0 -> bits 0..7, octet 1 -> bits 8..15,
+    // octet 2 -> bits 16..23). The high byte of *id_dst is left untouched, to
+    // mirror the legacy (uint8_t *)id_dst write that only stored 3 octets.
+    {
+      uint32_t id = *spi->id_dst & 0xFF000000u;
+      id |= ((uint32_t)SPIF_BYTE_GET(spi->tx_internal_buf, 0));
+      id |= ((uint32_t)SPIF_BYTE_GET(spi->tx_internal_buf, 1)) << 8;
+      id |= ((uint32_t)SPIF_BYTE_GET(spi->tx_internal_buf, 2)) << 16;
+      *spi->id_dst = id;
+    }
     spi->op = SPIFLASH_OP_IDLE;
     break;
 
@@ -750,8 +772,8 @@ int SPIFLASH_write_reg(spiflash_t *spi, uint8_t reg, uint8_t data,
     return SPIFLASH_ERR_BUSY;
   }
 
-  spi->tx_internal_buf[0] = reg;
-  spi->tx_internal_buf[1] = data;
+  SPIF_BYTE_SET(spi->tx_internal_buf, 0, reg);
+  SPIF_BYTE_SET(spi->tx_internal_buf, 1, data);
 
   spi->op = write_en ? SPIFLASH_OP_WRITE_REG_sWREN : SPIFLASH_OP_WRITE_REG_DATA;
   if (write_en) {
@@ -802,4 +824,19 @@ int SPIFLASH_chip_erase(spiflash_t *spi) {
 int SPIFLASH_is_busy(spiflash_t *spi) {
   return spi->op == SPIFLASH_OP_IDLE ? SPIFLASH_OK : SPIFLASH_ERR_BUSY;
 }
+
+#ifdef SPIFLASH_TEST_HOOKS
+/* Test-only thin wrappers exposing internal helpers. Compiled in by the unit
+ * test build (CMake adds -DSPIFLASH_TEST_HOOKS for the test library only).
+ */
+void spiflash_test_compose_address(spiflash_t *spi, uint32_t addr,
+                                   spif_byte_t *buf, uint32_t octet_off) {
+  _spiflash_compose_address(spi, addr, buf, octet_off);
+}
+
+uint32_t spiflash_test_get_largest_erase_area(spiflash_t *spi,
+                                              uint32_t addr, uint32_t len) {
+  return _spiflash_get_largest_erase_area(spi, addr, len);
+}
+#endif
 

@@ -1,7 +1,12 @@
-# SPI flash abstraction driver
+# SPI flash abstraction driver (TI C2000 fork)
 
 This is a hardware agnostic abstraction driver for SPI NOR flashes. It can run
 either in synchronous/blocking or asynchronous/non-blocking mode.
+
+This fork extends the original
+[pellepl/spiflash_driver](https://github.com/pellepl/spiflash_driver) with
+support for the TI C2000 family, where `CHAR_BIT == 16` and there is no native
+octet addressing. See [TI C2000 support](#ti-c2000-support) below.
 
 In synchronous mode, all calls to this driver are blocking. E.g.
 ```SPIFLASH_write``` will not return until the data is written and the spi flash
@@ -258,3 +263,102 @@ void init_spif(void) {
 ```
 
 ... and you're ready to go.
+
+# TI C2000 support
+
+The TI C2000 family (TMS320F28xxx etc.) has `CHAR_BIT == 16`: the smallest
+addressable unit is a 16-bit word, `<stdint.h>` does not define `int8_t` /
+`uint8_t`, and pointer arithmetic on a `uint8_t *` advances by 16 bits, not 8.
+The original driver makes the implicit assumption that one byte is one octet,
+which breaks portability to C2000 in three ways:
+
+1. The driver uses `uint8_t` in public types, but the C2000 `<stdint.h>` does
+   not provide it.
+2. `tx_internal_buf[N]`-style indexing must access octets, not 16-bit words,
+   if the integrator wants packed-byte storage.
+3. `read_jedec_id` / `read_product_id` cast a `uint32_t *` to `uint8_t *` and
+   ask the HAL to fill three bytes through that alias. This is undefined on
+   C2000 (a `uint32_t` is two 16-bit cells, not four octets).
+
+This fork addresses all three. See [`src/spiflash_port.h`](src/spiflash_port.h)
+for the portability layer.
+
+## Byte-storage modes
+
+Pick one at compile time (the default works for both ARM and C2000):
+
+* `SPIFLASH_BYTES_ONE_PER_WORD` (default) - each `uint8_t` cell holds exactly
+  one octet (0..255). On C2000 the cell is 16 bits but only the low 8 bits are
+  meaningful. Buffers cost 2x RAM versus a true 8-bit-byte target. The HAL is
+  responsible for transmitting only the low 8 bits of each cell. No application
+  changes versus a 32-bit ARM build.
+* `SPIFLASH_BYTES_PACKED` (opt-in, C2000) - two octets are packed per 16-bit
+  word using the TI compiler `__byte()` intrinsic. Halves the storage footprint
+  but requires user-supplied `addr` / `len` for `SPIFLASH_write` / `SPIFLASH_read`
+  to be even-octet aligned. Page-aligned access (the common case) satisfies
+  this naturally.
+
+Either mode is selected by defining the corresponding macro on the `cl2000`
+command line; see `scripts/build_c2000.bat` / `.sh`.
+
+## Falling back uint8_t / int8_t on C2000
+
+When `__TMS320C2000__` is defined and `__TMS320C28XX_CLA__` is not,
+`spiflash_port.h` provides `typedef unsigned char uint8_t;` (16 bits wide on
+C2000). Define `SPIFLASH_PORT_DONT_DEFINE_UINT8` to suppress this if your
+project already provides the typedefs.
+
+## HAL contract on C2000
+
+The HAL signature is unchanged:
+
+```
+int (*_spiflash_spi_txrx)(struct spiflash_s *spi, const uint8_t *tx_data,
+    uint32_t tx_len, uint8_t *rx_data, uint32_t rx_len);
+```
+
+The semantics of `tx_len` / `rx_len` are octet counts in both modes. Only the
+in-memory layout of the buffers differs:
+
+* in one-per-word mode the HAL accesses octets via `tx_data[i]` (low 8 bits);
+* in packed mode the HAL accesses octets via `__byte((int *)tx_data, i)`.
+
+# Host unit tests
+
+The repository ships a Unity-based host test suite that exercises:
+
+* `_spiflash_compose_address` for every (addr_sz, endian) pair;
+* `_spiflash_get_largest_erase_area` over a matrix of cmd-table / addr / len;
+* JEDEC and product-id 3-byte reassembly (the C2000 aliasing fix);
+* multi-page writes with address sequencing;
+* `BCW_*` busy-check-wait state machine;
+* asynchronous flow driven by `SPIFLASH_async_trigger`;
+* a packed-byte mode build against a host-side `__byte()` stub.
+
+## Running the host tests
+
+```
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+## TI C2000 compile-only check
+
+The repository can be cross-checked against the real TI cl2000 compiler with:
+
+```
+# bash
+CL2000=/path/to/cl2000 ./scripts/build_c2000.sh
+CL2000=/path/to/cl2000 ./scripts/build_c2000.sh packed
+
+# windows
+set CL2000=C:\ti\ccs1240\ccs\tools\compiler\ti-cgt-c2000_22.6.0.LTS\bin\cl2000.exe
+scripts\build_c2000.bat
+scripts\build_c2000.bat packed
+```
+
+This compiles the driver only - it does not link or run anything. The CI
+workflow in `.github/workflows/ci.yml` runs the host tests on Ubuntu and
+Windows; the cl2000 step is documented as a self-hosted-runner job because
+the TI toolchain is not redistributable.
