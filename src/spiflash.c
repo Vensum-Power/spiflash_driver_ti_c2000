@@ -312,23 +312,18 @@ static int _spiflash_begin_async(spiflash_t *spi) {
   }
 
   case SPIFLASH_OP_READ_JEDEC: {
-    // read_jedec - receive 3 octets into tx_internal_buf scratch; reassemble
-    // into *id_dst in the completion handler. Reading directly through
-    // (uint8_t *)id_dst would alias a uint32_t storage as a packed-byte stream
-    // which is not valid on TI C2000 (CHAR_BIT == 16).
+    // read_jedec
     SPIF_DBG("read_jedec...\n");
     spi->hal->_spiflash_spi_cs(spi, 1);
-    res = spi->hal->_spiflash_spi_txrx(spi, &spi->cmd_tbl->jedec_id, 1,
-        spi->tx_internal_buf, 3);
+    res = spi->hal->_spiflash_spi_txrx(spi, &spi->cmd_tbl->jedec_id, 1, (uint8_t *)spi->id_dst, 3);
     return res;
   }
 
   case SPIFLASH_OP_READ_PRODUCT: {
-    // read_product - same scratch buffer trick as READ_JEDEC.
+    // read_jedec
     SPIF_DBG("read_prod...\n");
     spi->hal->_spiflash_spi_cs(spi, 1);
-    res = spi->hal->_spiflash_spi_txrx(spi, &spi->cmd_tbl->device_id, 1,
-        spi->tx_internal_buf, 3);
+    res = spi->hal->_spiflash_spi_txrx(spi, &spi->cmd_tbl->device_id, 1, (uint8_t *)spi->id_dst, 3);
     return res;
   }
 
@@ -500,19 +495,12 @@ static int _spiflash_end_async(spiflash_t *spi, int res) {
     break;
 
   case SPIFLASH_OP_READ_JEDEC:
+    SPIF_DBG("read jedec ok\n");
+    spi->op = SPIFLASH_OP_IDLE;
+    break;
+
   case SPIFLASH_OP_READ_PRODUCT:
-    SPIF_DBG("read jedec/prod ok\n");
-    // Reassemble the 3 received octets into *id_dst preserving the original
-    // little-endian byte ordering (octet 0 -> bits 0..7, octet 1 -> bits 8..15,
-    // octet 2 -> bits 16..23). The high byte of *id_dst is left untouched, to
-    // mirror the legacy (uint8_t *)id_dst write that only stored 3 octets.
-    {
-      uint32_t id = *spi->id_dst & 0xFF000000u;
-      id |= ((uint32_t)SPIF_BYTE_GET(spi->tx_internal_buf, 0));
-      id |= ((uint32_t)SPIF_BYTE_GET(spi->tx_internal_buf, 1)) << 8;
-      id |= ((uint32_t)SPIF_BYTE_GET(spi->tx_internal_buf, 2)) << 16;
-      *spi->id_dst = id;
-    }
+    SPIF_DBG("read prod ok\n");
     spi->op = SPIFLASH_OP_IDLE;
     break;
 
