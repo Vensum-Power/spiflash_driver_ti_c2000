@@ -1,11 +1,19 @@
 /*
  * test_jedec_id.c
  *
- * Verifies that JEDEC and product ID 3-byte payloads are reassembled into the
- * caller's uint32_t in the same little-endian octet order the original code
- * produced on a 32-bit byte-addressable target.
+ * Verifies that the JEDEC and product ID 3-byte payloads land in the caller's
+ * uint32_t in the same little-endian octet order the upstream driver
+ * produced on a 32-bit byte-addressable target:
+ *   bits  0..7  = octet 0 (manufacturer)
+ *   bits  8..15 = octet 1 (memory type)
+ *   bits 16..23 = octet 2 (capacity / device id)
+ *   bits 24..31 = untouched
  *
- * Catches the (uint8_t *)id_dst aliasing bug that breaks on TI C2000.
+ * The driver writes those 3 octets directly through (uint8_t *)spi->id_dst
+ * via the HAL. On a little-endian host (and on C2000 in packed-byte mode,
+ * where the HAL uses __byte() to write each octet) this yields the layout
+ * above. test_packed_bytes.c covers the packed-mode path against the
+ * host-side __byte() stub.
  */
 
 #include <stdint.h>
@@ -58,8 +66,8 @@ void test_product_id_assembled_le(void) {
 }
 
 void test_jedec_preserves_high_byte(void) {
-    /* Legacy (uint8_t *)id_dst write only stored 3 octets; the upper byte must
-     * come through untouched.
+    /* The driver writes only 3 octets into the destination; the upper byte
+     * (bits 24..31) of the caller's uint32_t must come through untouched.
      */
     const uint8_t id_bytes[3] = {0x01, 0x02, 0x03};
     mock_hal_set_rx(&s_mock, id_bytes, sizeof(id_bytes));

@@ -33,13 +33,19 @@ identical and easy to diff between platforms.
 A passing report on the C2000 build is the strongest evidence that the C2000
 port is correct on real hardware:
 
-- **JEDEC ID readout** exercises the `(uint8_t *)id_dst` aliasing fix that
-  was the central C2000 issue.
+- **JEDEC ID readout** exercises the 3-octet write into the caller's
+  `uint32_t` via `(uint8_t *)id_dst`. On C2000 this requires the HAL's
+  `_spiflash_spi_txrx` to write each octet through `SPIF_BYTE_SET`
+  (i.e. `__byte()` in packed-byte mode); the C2000 example HAL does this.
 - **Page-boundary write** exercises `SPIF_BUF_ADVANCE` and the
   `_spiflash_compose_address` byte ordering, both of which go through the
   port abstraction.
 - **Verify-erased / readback** exercises every `SPIF_BYTE_GET / SET` macro
   on a buffer larger than `tx_internal_buf`.
+- **Status-register read/write** exercises the union-shared `sr_data` /
+  `reg_nbr` fields, which must be accessed via `SPIF_BYTE_GET / SET` in
+  packed mode (otherwise they alias the wrong half of the first 16-bit
+  cell of `tx_internal_buf`).
 
 A passing report on the Cortex-M4 build proves nothing changed for users on
 classic 8-bit-byte targets.

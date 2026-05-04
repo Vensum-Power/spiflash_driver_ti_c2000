@@ -358,7 +358,7 @@ The repository ships a Unity-based host test suite that exercises:
 
 * `_spiflash_compose_address` for every (addr_sz, endian) pair;
 * `_spiflash_get_largest_erase_area` over a matrix of cmd-table / addr / len;
-* JEDEC and product-id 3-byte reassembly (the C2000 aliasing fix);
+* JEDEC and product-id 3-byte readout into the caller's `uint32_t`;
 * multi-page writes with address sequencing;
 * `BCW_*` busy-check-wait state machine;
 * asynchronous flow driven by `SPIFLASH_async_trigger`;

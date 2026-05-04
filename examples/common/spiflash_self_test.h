@@ -82,12 +82,14 @@ typedef struct {
     spif_byte_t *scratch_b;
 
     /**
-     * If non-zero, JEDEC ID is checked against this value. The legacy code
-     * reassembles the 3 received octets in little-endian order:
+     * If non-zero, JEDEC ID is checked against this value. The driver places
+     * the 3 received octets into the caller's uint32_t in little-endian
+     * order:
      *   bits  0..7  = manufacturer
      *   bits  8..15 = memory type
      *   bits 16..23 = capacity
-     * Set to 0 to log JEDEC but skip the comparison.
+     * The comparison masks bits 24..31 (the high byte is not written by the
+     * driver). Set to 0 to log JEDEC but skip the comparison.
      */
     uint32_t expected_jedec;
 
