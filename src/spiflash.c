@@ -383,7 +383,7 @@ static int _spiflash_end_async(spiflash_t *spi, int res) {
   
   // handle busy pre check
   if (spi->busy_pre_check) {
-    if (_spiflash_is_hwbusy(spi, spi->sr_data)) {
+    if (_spiflash_is_hwbusy(spi, SPIF_BYTE_GET(&(spi->sr_data), 0))) {
       spi->hal->_spiflash_spi_cs(spi, 0);
       SPIF_DBG("precheck busy\n");
       return SPIFLASH_ERR_HW_BUSY;
@@ -411,7 +411,7 @@ static int _spiflash_end_async(spiflash_t *spi, int res) {
     return res;
   case BCW_CHECK:
     spi->hal->_spiflash_spi_cs(spi, 0);
-    if (_spiflash_is_hwbusy(spi, spi->sr_data)) {
+    if (_spiflash_is_hwbusy(spi, SPIF_BYTE_GET(&(spi->sr_data), 0))) {
       spi->wait_period_ms = DECR_WAIT(spi->wait_period_ms);
       SPIF_DBG("BUSY check WAIT %i...\n", spi->wait_period_ms);
       spi->busy_check_wait = BCW_READ_SR;
@@ -726,7 +726,7 @@ int SPIFLASH_write_sr(spiflash_t *spi, uint8_t sr) {
     return SPIFLASH_ERR_BUSY;
   }
 
-  spi->sr_data = sr;
+  SPIF_BYTE_SET(&(spi->sr_data), 0, sr);
 
   spi->op = SPIFLASH_OP_WRITE_SR_sWREN;
 
@@ -742,7 +742,7 @@ int SPIFLASH_read_reg(spiflash_t *spi, uint8_t reg, uint8_t *data) {
     return SPIFLASH_ERR_BUSY;
   }
 
-  spi->reg_nbr = reg;
+  SPIF_BYTE_SET(&(spi->reg_nbr), 0, reg);
   spi->reg_dst = data;
 
   spi->op = SPIFLASH_OP_READ_REG;
